@@ -72,10 +72,10 @@ gen_config() {
         "clients": [ { "id": "$DUMMY" } ],
         "decryption": "none",
         "fallbacks": [
-          { "path": "$PATH_VL", "dest": $PORT_VL },
-          { "path": "$PATH_VM", "dest": $PORT_VM },
-          { "path": "$PATH_TR", "dest": $PORT_TR },
-          { "dest": $PORT_WEB }
+          { "path": "$PATH_VL", "dest": "127.0.0.1:$PORT_VL" },
+          { "path": "$PATH_VM", "dest": "127.0.0.1:$PORT_VM" },
+          { "path": "$PATH_TR", "dest": "127.0.0.1:$PORT_TR" },
+          { "dest": "127.0.0.1:$PORT_WEB" }
         ]
       },
       "streamSettings": { "network": "tcp", "security": "none" }
@@ -170,7 +170,11 @@ main() {
   fetch_remote_config || true
   gen_links
   echo '<html><body><h1>It works!</h1></body></html>' > "$WWW_DIR/index.html"
-  command -v busybox >/dev/null && busybox httpd -f -p "127.0.0.1:$PORT_WEB" -h "$WWW_DIR" &
+  if command -v busybox-extras >/dev/null 2>&1; then
+    busybox-extras httpd -f -p "127.0.0.1:$PORT_WEB" -h "$WWW_DIR" &
+  else
+    log "هشدار: busybox-extras نصب نیست؛ صفحه‌ی پیش‌فرض اجرا نمی‌شود"
+  fi
 
   updater_loop &
   trap 'kill 0' TERM INT

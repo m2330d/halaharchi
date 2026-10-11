@@ -1,5 +1,5 @@
 FROM alpine:3.20
-RUN apk add --no-cache bash curl unzip ca-certificates \
+RUN apk add --no-cache bash curl unzip ca-certificates busybox-extras \
  && adduser -D -u 10001 xray \
  && mkdir -p /opt/xray /www /app \
  && chown -R xray:xray /opt/xray /www /app

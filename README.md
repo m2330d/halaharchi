@@ -19,3 +19,17 @@ Xray با VLESS + VMess + Trojan روی WebSocket، همه روی یک پورت�
 - در هر استارت، آخرین نسخه‌ی Xray از GitHub رسمی دانلود می‌شود (با بررسی SHA256 و تست اجرا و تست سازگاری با کانفیگ).
 - هر `UPDATE_INTERVAL_HOURS` ساعت دوباره بررسی و در صورت وجود نسخه‌ی جدید، Xray خودکار ری‌استارت می‌شود.
 - اگر `CONFIG_URL` تنظیم باشد، همان‌جا هم بررسی می‌شود و فقط کانفیگ معتبر اعمال می‌شود.
+
+## کانفیگ‌های ساخته‌شده (۷ عدد)
+| پروتکل | ترنسپورت |
+|---|---|
+| VLESS | WebSocket |
+| VMess | WebSocket |
+| Trojan | WebSocket |
+| VLESS | HTTPUpgrade |
+| VMess | HTTPUpgrade |
+| Trojan | HTTPUpgrade |
+| Shadowsocks (`chacha20-ietf-poly1305`) | WebSocket |
+
+اگر Xray نصب‌شده کانفیگ کامل را نپذیرد، برنامه خودکار به حالت پایه (سه کانفیگ WebSocket) برمی‌گردد.
+رمز Shadowsocks با متغیر `SS_PASSWORD` قابل تنظیم است (پیش‌فرض: همان `UUID`).

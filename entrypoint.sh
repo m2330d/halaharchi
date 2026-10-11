@@ -10,6 +10,7 @@ XRAY_VERSION="${XRAY_VERSION:-latest}"             # latest یا یک نسخه�
 UPDATE_INTERVAL_HOURS="${UPDATE_INTERVAL_HOURS:-24}"
 LISTEN_PORT="${PORT:-8080}"
 PORT_VL=18001; PORT_VM=18002; PORT_TR=18003; PORT_WEB=18080
+PORT_VLH=18004; PORT_VMH=18005; PORT_TRH=18006; PORT_SS=18007
 
 log() { echo "[$(date -u +%H:%M:%S)] $*"; }
 
@@ -58,9 +59,45 @@ install_xray() {   # install_xray <tag>
 # ---------- ساخت کانفیگ ----------
 sha_slice() { printf %s "$1" | sha256sum | cut -c"$2"; }
 
+# gen_config full|basic  (basic = فقط سه کانفیگ WS)
 gen_config() {
+  MODE="${1:-full}"
   P="${PATH_PREFIX:-$(sha_slice "$UUID" 1-12)}"
   PATH_VL="/$P/vl"; PATH_VM="/$P/vm"; PATH_TR="/$P/tr"
+  PATH_VLH="/$P/vlh"; PATH_VMH="/$P/vmh"; PATH_TRH="/$P/trh"; PATH_SS="/$P/ss"
+  SS_METHOD="chacha20-ietf-poly1305"; SS_PASS="${SS_PASSWORD:-$UUID}"
+  local extra_fb="" extra_in=""
+  if [[ "$MODE" == "full" ]]; then
+    read -r -d '' extra_fb <<EOF2
+          { "path": "$PATH_VLH", "dest": "127.0.0.1:$PORT_VLH" },
+          { "path": "$PATH_VMH", "dest": "127.0.0.1:$PORT_VMH" },
+          { "path": "$PATH_TRH", "dest": "127.0.0.1:$PORT_TRH" },
+          { "path": "$PATH_SS", "dest": "127.0.0.1:$PORT_SS" },
+EOF2
+    read -r -d '' extra_in <<EOF2
+,
+    {
+      "tag": "vless-hu", "listen": "127.0.0.1", "port": $PORT_VLH, "protocol": "vless",
+      "settings": { "clients": [ { "id": "$UUID" } ], "decryption": "none" },
+      "streamSettings": { "network": "httpupgrade", "httpupgradeSettings": { "path": "$PATH_VLH" } }
+    },
+    {
+      "tag": "vmess-hu", "listen": "127.0.0.1", "port": $PORT_VMH, "protocol": "vmess",
+      "settings": { "clients": [ { "id": "$UUID" } ] },
+      "streamSettings": { "network": "httpupgrade", "httpupgradeSettings": { "path": "$PATH_VMH" } }
+    },
+    {
+      "tag": "trojan-hu", "listen": "127.0.0.1", "port": $PORT_TRH, "protocol": "trojan",
+      "settings": { "clients": [ { "password": "${TROJAN_PASSWORD:-$UUID}" } ] },
+      "streamSettings": { "network": "httpupgrade", "httpupgradeSettings": { "path": "$PATH_TRH" } }
+    },
+    {
+      "tag": "ss-ws", "listen": "127.0.0.1", "port": $PORT_SS, "protocol": "shadowsocks",
+      "settings": { "method": "$SS_METHOD", "password": "$SS_PASS", "network": "tcp,udp" },
+      "streamSettings": { "network": "ws", "wsSettings": { "path": "$PATH_SS" } }
+    }
+EOF2
+  fi
   DUMMY="$(sha_slice "dummy-$UUID" 1-32 | sed -E 's/^(.{8})(.{4})(.{4})(.{4})(.{12}).*/\1-\2-\3-\4-\5/')"
   cat > "$CONF" <<JSON
 {
@@ -75,6 +112,7 @@ gen_config() {
           { "path": "$PATH_VL", "dest": "127.0.0.1:$PORT_VL" },
           { "path": "$PATH_VM", "dest": "127.0.0.1:$PORT_VM" },
           { "path": "$PATH_TR", "dest": "127.0.0.1:$PORT_TR" },
+$extra_fb
           { "dest": "127.0.0.1:$PORT_WEB" }
         ]
       },
@@ -94,7 +132,7 @@ gen_config() {
       "tag": "trojan-ws", "listen": "127.0.0.1", "port": $PORT_TR, "protocol": "trojan",
       "settings": { "clients": [ { "password": "${TROJAN_PASSWORD:-$UUID}" } ] },
       "streamSettings": { "network": "ws", "wsSettings": { "path": "$PATH_TR" } }
-    }
+    }$extra_in
   ],
   "outbounds": [
     { "tag": "direct", "protocol": "freedom" },
@@ -133,9 +171,21 @@ gen_links() {
   local vmj
   vmj="{\"v\":\"2\",\"ps\":\"$NAME-vmess\",\"add\":\"$HOST\",\"port\":\"443\",\"id\":\"$UUID\",\"aid\":\"0\",\"scy\":\"auto\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"$HOST\",\"path\":\"$PATH_VM\",\"tls\":\"tls\",\"sni\":\"$HOST\",\"alpn\":\"http/1.1\",\"fp\":\"chrome\"}"
   local vm="vmess://$(printf %s "$vmj" | b64)"
+  local all="$vl"$'\n'"$vm"$'\n'"$tr"
+  if [[ "${MODE:-full}" == "full" ]]; then
+    local qh="security=tls&sni=$HOST&alpn=http%2F1.1&fp=chrome&type=httpupgrade&host=$HOST"
+    local enc; enc() { printf %s "$1" | sed 's#/#%2F#g'; }
+    local vlh="vless://$UUID@$HOST:443?encryption=none&$qh&path=$(enc "$PATH_VLH")#$NAME-vless-httpupgrade"
+    local trh="trojan://${TROJAN_PASSWORD:-$UUID}@$HOST:443?$qh&path=$(enc "$PATH_TRH")#$NAME-trojan-httpupgrade"
+    local vmhj="{\"v\":\"2\",\"ps\":\"$NAME-vmess-httpupgrade\",\"add\":\"$HOST\",\"port\":\"443\",\"id\":\"$UUID\",\"aid\":\"0\",\"scy\":\"auto\",\"net\":\"httpupgrade\",\"type\":\"none\",\"host\":\"$HOST\",\"path\":\"$PATH_VMH\",\"tls\":\"tls\",\"sni\":\"$HOST\",\"alpn\":\"http/1.1\",\"fp\":\"chrome\"}"
+    local vmh="vmess://$(printf %s "$vmhj" | b64)"
+    local ssu; ssu="$(printf %s "$SS_METHOD:$SS_PASS" | base64 | tr -d '=\n')"
+    local ss="ss://$ssu@$HOST:443?type=ws&$q&path=$(enc "$PATH_SS")#$NAME-shadowsocks-ws"
+    all="$all"$'\n'"$vlh"$'\n'"$vmh"$'\n'"$trh"$'\n'"$ss"
+  fi
   SUB_TOKEN="${SUB_TOKEN:-$(sha_slice "sub-$UUID" 1-16)}"
   mkdir -p "$WWW_DIR"
-  printf '%s\n%s\n%s\n' "$vl" "$vm" "$tr" | b64 > "$WWW_DIR/$SUB_TOKEN"
+  printf '%s\n' "$all" | b64 > "$WWW_DIR/$SUB_TOKEN"
   log "لینک اشتراک: https://$HOST/$SUB_TOKEN"
 }
 
@@ -166,7 +216,11 @@ main() {
   fi
   [[ -x "$XRAY_DIR/xray" ]] || { log "Xray نصب نشد؛ خروج"; exit 1; }
 
-  gen_config
+  gen_config full
+  if ! XRAY_LOCATION_ASSET="$XRAY_DIR" "$XRAY_DIR/xray" run -test -c "$CONF" >/dev/null 2>&1; then
+    log "کانفیگ کامل معتبر نبود؛ حالت پایه (فقط سه کانفیگ WS) فعال شد"
+    gen_config basic
+  fi
   fetch_remote_config || true
   gen_links
   echo '<html><body><h1>It works!</h1></body></html>' > "$WWW_DIR/index.html"

@@ -66,6 +66,9 @@ gen_config() {
   PATH_VL="/$P/vl"; PATH_VM="/$P/vm"; PATH_TR="/$P/tr"
   PATH_VLH="/$P/vlh"; PATH_VMH="/$P/vmh"; PATH_TRH="/$P/trh"; PATH_SS="/$P/ss"
   SS_METHOD="chacha20-ietf-poly1305"; SS_PASS="${SS_PASSWORD:-$UUID}"
+  # لاگ دسترسی (آی‌پی کاربر و مقصدها) به‌صورت پیش‌فرض خاموش است؛ برای عیب‌یابی ACCESS_LOG=1 بگذارید
+  local logacc='"access": "none", '
+  [[ "${ACCESS_LOG:-0}" == "1" ]] && logacc=''
   local extra_fb="" extra_in=""
   if [[ "$MODE" == "full" ]]; then
     read -r -d '' extra_fb <<EOF2
@@ -101,7 +104,7 @@ EOF2
   DUMMY="$(sha_slice "dummy-$UUID" 1-32 | sed -E 's/^(.{8})(.{4})(.{4})(.{4})(.{12}).*/\1-\2-\3-\4-\5/')"
   cat > "$CONF" <<JSON
 {
-  "log": { "loglevel": "warning" },
+  "log": { ${logacc}"loglevel": "warning" },
   "inbounds": [
     {
       "tag": "entry", "listen": "0.0.0.0", "port": $LISTEN_PORT, "protocol": "vless",
